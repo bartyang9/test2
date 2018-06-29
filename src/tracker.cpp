@@ -1,5 +1,6 @@
 #include "tracker.h"
 
+
 #include "mesh/mesh_proc.h"
 #include "mesh/mesh_sample.h"
 #include "mesh/primitive_meshing.h"
@@ -48,7 +49,10 @@ Tracker::~Tracker() {
     for (Eigen::MatrixXf * matrix : _dampingMatrices) {
         delete matrix;
     }
-    for(auto model_ptr: mModels) { delete model_ptr; }
+
+    // delete HostOnlyModels in _models
+    for(auto model_ptr: _models) { delete model_ptr; }
+
     delete _pcSource;
     delete _optimizer;
 
@@ -66,7 +70,6 @@ bool Tracker::addModel(const std::string & filename,
                        const float collisionCloudDensity,
                        const bool cacheSdfs) {
 
-
     std::cout << "loading model from " << filename << std::endl;
 
     const int lastSlash = filename.find_last_of('/');
@@ -75,30 +78,42 @@ bool Tracker::addModel(const std::string & filename,
     const int substrStart = lastSlash < filename.size() ? lastSlash + 1: 0;
     const std::string modelName = filename.substr(substrStart, diff > 0 ? diff : filename.size() - substrStart);
     std::cout << "model name: " << modelName << std::endl;
-
+    
     HostOnlyModel *model = new HostOnlyModel();
-    bool myReturn;
+    bool ret;
     if (!readModelXML(filename.c_str(), *model)) {
-        delete model;
-        myReturn =  false;
+        ret = false;
     }
-    else{
+    else {
         model->setName(modelName);
-        myReturn =  addModel(*model,
-                       modelSdfResolution,
-                       modelSdfPadding,
-                       obsSdfSize,
-                       obsSdfResolution,
-                       obsSdfOffset,
-                       poseReduction,
-                       collisionCloudDensity,
-                       cacheSdfs);
+        ret =  addModel(*model,
+                        modelSdfResolution,
+                        modelSdfPadding,
+                        obsSdfSize,
+                        obsSdfResolution,
+                        obsSdfOffset,
+                        poseReduction,
+                        collisionCloudDensity,
+                        cacheSdfs);
     }
     delete model;
-    return myReturn;
-
+    return ret;    
 }
 
+/**
+ * @brief Tracker::addModel pre-processes model and adds a copy to tracker
+ * @param model model to track, a copy will be created and the passed instance can be deleted after method call returns
+ * @param modelSdfResolution
+ * @param modelSdfPadding
+ * @param obsSdfSize
+ * @param obsSdfResolution
+ * @param obsSdfOffset
+ * @param poseReduction
+ * @param collisionCloudDensity
+ * @param cacheSdfs
+ * @return true on success
+ * @return false on failure
+ */
 bool Tracker::addModel(dart::HostOnlyModel &model,
                        const float modelSdfResolution,
                        const float modelSdfPadding,
@@ -108,13 +123,22 @@ bool Tracker::addModel(dart::HostOnlyModel &model,
                        PoseReduction * poseReduction,
                        const float collisionCloudDensity,
                        const bool cacheSdfs) {
-                           
+
     model.computeStructure();
 
+    unsigned int ngeom = 0;
+    for(unsigned int f=0; f<model.getNumFrames(); f++) {
+        ngeom += model.getFrameNumGeoms(f);
+    }
+    if(ngeom == 0) {
+        std::cerr<<"model "<<model.getName()<<" has no geometric shapes"<<std::endl;
+        return false;
+    }
+    
     model.voxelize(modelSdfResolution,modelSdfPadding,cacheSdfs ? dart::stringFormat("/tmp/%s",model.getName().c_str()) : "");
-
-
+    
     if (obsSdfResolution <= 0 ) {
+        
         // compute obs sdf size dynamically
         const float obsSdfPadding = 0.02;
         if (model.getPoseDimensionality() == 6) {
@@ -138,6 +162,7 @@ bool Tracker::addModel(dart::HostOnlyModel &model,
             obsSdfOffset = min + 0.5*(obsSdfSizeMeters - make_float3(maxDimMeters)) - make_float3(obsSdfPadding);
         }
     }
+
 
     _mirroredModels.push_back(new MirroredModel(model,
                                                 make_uint3(obsSdfSize),
@@ -163,8 +188,9 @@ bool Tracker::addModel(dart::HostOnlyModel &model,
     }
     _estimatedPoses.push_back(Pose(poseReduction));
 
-    mModels.push_back(new HostOnlyModel(model));
-
+    // we need to copy as we don't know if memory was allocated on stack or heap
+    // and object pointed by stored pointer will be deallocated in deconstructor
+    _models.push_back( new HostOnlyModel(model) );
     // build collision cloud
     MirroredVector<float4> * collisionCloud = 0;
     _collisionCloudSdfLengths.push_back(std::vector<int>(model.getNumSdfs()));
@@ -211,7 +237,6 @@ bool Tracker::addModel(dart::HostOnlyModel &model,
             transformMesh(*samplerMesh,mT);
             sampleMesh(sampledPoints,*samplerMesh,collisionCloudDensity);
             delete samplerMesh;
-//            std::cout << "sampled " << sampledPoints.size() << " points" << std::endl;
 
             int start;
             if (collisionCloud == 0) {
@@ -285,9 +310,12 @@ bool Tracker::addModel(dart::HostOnlyModel &model,
         for (int i=(getNumModels()-1)*(getNumModels()-1); i<_opts.lambdaIntersection.size(); ++i) { _opts.lambdaIntersection[i] = 0; }
 
     }
+    
 
     CheckCudaDieOnError();
 
+    std::cout << "I am debuging here too !~~~~~~" << std::endl;
+    
     return true;
 }
 
@@ -320,11 +348,12 @@ void Tracker::updateModel(const int modelNum,
     int modelID = _mirroredModels[modelNum]->getModelID();
     delete _mirroredModels[modelNum];
 
-    HostOnlyModel *model = mModels[modelNum];
+    // get reference to model
+    HostOnlyModel *model = _models[modelNum];
 
     for (std::map<std::string,float>::const_iterator it = _sizeParams[modelNum].begin();
          it != _sizeParams[modelNum].end(); ++it) {
-        (*model).setSizeParam(it->first,it->second);
+             (*model).setSizeParam(it->first,it->second);
     }
 
     (*model).computeStructure();
@@ -449,13 +478,12 @@ void Tracker::setIntersectionPotentialMatrix(const int modelNum, const int * mx)
     _intersectionPotentialMatrices[modelNum]->syncHostToDevice();
 }
 
-int Tracker::getModelIDwName(const std::string &name) const{
-    for (int i = 0; i < mModels.size(); i++){
-        if(mModels[i]->getName() == name){
+int Tracker::getModelIDbyName(const std::string &name) const {
+    for(unsigned int i=0; i<_models.size(); i++) {
+        if(_models[i]->getName() == name)
             return i;
-        }
-        return -1;
     }
+    return -1;
 }
 
 }

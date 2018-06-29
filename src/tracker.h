@@ -85,15 +85,15 @@ public:
     inline const MirroredModel & getModel(const int modelNum) const { return * _mirroredModels[modelNum]; }
     inline MirroredModel & getModel(const int modelNum) { return * _mirroredModels[modelNum]; }
 
-    int getModelIDwName(const std::string &name) const;
-
+    int getModelIDbyName(const std::string &name) const;
+    
     inline const Pose & getPose(const int modelNum) const { return _estimatedPoses[modelNum]; }
     inline Pose & getPose(const int modelNum) { return _estimatedPoses[modelNum]; }
     inline const Pose & getPose(const std::string &modelName) const {
-        return _estimatedPoses.at(getModelIDwName(modelName));
+        return _estimatedPoses.at(getModelIDbyName(modelName));
     }
-    inline Pose & getPose(const std::string & modelName){
-        return _estimatedPoses.at(getModelIDwName(modelName));
+    inline Pose & getPose(const std::string &modelName) {
+        return _estimatedPoses.at(getModelIDbyName(modelName));
     }
     inline std::map<std::string,float> & getSizeParams(const int modelNum) { return _sizeParams[modelNum]; }
     inline const float4 * getHostVertMap() { return _pcSource->getHostVertMap(); }
@@ -162,7 +162,10 @@ private:
     std::vector<PoseReduction *> _ownedPoseReductions;
     std::vector<Pose> _estimatedPoses;
 
-    std::vector<dart::HostOnlyModel*> mModels;
+    /**
+     * @brief _models list of pointers to all added models
+     */
+    std::vector<HostOnlyModel*> _models;
 
     std::vector<Eigen::MatrixXf *> _dampingMatrices;
     std::vector<Prior *> _priors;

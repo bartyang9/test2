@@ -1,5 +1,6 @@
 #include "model.h"
 
+
 #include "GL/glut.h"
 #include <Eigen/Eigen>
 
@@ -21,8 +22,7 @@ Model::Model(const Model & copy) {
     _T_cm = copy._T_cm;
     _jointLimits = copy._jointLimits;
     _jointNames = copy._jointNames;
-    mName = copy.mName;
-
+    _name = copy._name;
 }
 
 void Model::initializeRenderer(dart::MeshReader * meshReader) {
@@ -206,15 +206,14 @@ void Model::renderVoxelizedFrame(const int frameNumber, const char* args) const 
     }
 }
 
-int Model::getJointIDwName(const std::string &name){
-    const auto pos = std::find(_jointNames.begin(), _jointNames.end(),name);
-    if (pos != _jointNames.end()){
-        return std::distance(_jointNames.begin(),pos);
-    }
-    else{
-        std::cout << "error:" << name << "not exist" << std::endl; 
-    }
+int Model::getJointIdByName(const std::string &name) {
+    const auto pos = std::find(_jointNames.begin(), _jointNames.end(), name);
+    if(pos != _jointNames.end())
+        return std::distance(_jointNames.begin(), pos);
+    else
+        throw std::range_error("requested frame '"+name+"' does not exist"); 
 }
+
 void Model::renderSdf(const dart::Grid3D<float> & sdf, float levelSet) const {
 
     glDisable(GL_BLEND);

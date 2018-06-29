@@ -75,13 +75,13 @@ dart::Mesh * AssimpMeshReader::readMesh(const std::string filename) const {
     // define import flags for assimp
     const unsigned int import_flags = aiProcess_Triangulate |
                                       aiProcess_SortByPType |
-                                      aiProcess_JoinIdenticalVertices;
+                                      aiProcess_JoinIdenticalVertices;    
     // aiProcess_Triangulate: triangulate ploygones such that all vertices have 3 points
     // aiProcess_SortByPType: split meshes with mixed types into separate meshes
     // aiProcess_JoinIdenticalVertices: remove vertices with same coordinates
 
-    const struct aiScene * scene = aiImportFile(filename.c_str(), import_flags);
-
+    const struct aiScene * scene = aiImportFile(filename.c_str(), import_flags);    
+    
     if (scene == 0) {
         std::cerr << "error: " << aiGetErrorString() << std::endl;
         aiReleaseImport(scene);
@@ -96,16 +96,16 @@ dart::Mesh * AssimpMeshReader::readMesh(const std::string filename) const {
     // recursively obtain vertices, normals and faces from meshes
     const aiNode* const rnode = scene->mRootNode;
     getMesh(scene, rnode, verts, normals, faces, transforms);
-
+        
     // copy mesh  data to DART mesh
     dart::Mesh* mesh = new dart::Mesh(verts.size(), faces.size());
     memcpy(mesh->vertices, verts.data(), vec_byte_size(verts));
     memcpy(mesh->normals, normals.data(), vec_byte_size(normals));
     memcpy(mesh->faces, faces.data(), vec_byte_size(faces));
-
     aiReleaseImport(scene);
 
     return mesh;
+
 }
 
 }
